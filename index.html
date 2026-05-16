@@ -222,6 +222,41 @@
   .empty-state{text-align:center;padding:64px 24px;color:var(--text-muted);}
   .empty-state .icon{font-size:3rem;margin-bottom:16px;}
 
+  /* IMAGE UPLOAD */
+  .img-upload-zone {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 20px; text-align: center; cursor: pointer;
+    transition: all 0.2s; position: relative; overflow: hidden;
+    background: var(--surface2);
+  }
+  .img-upload-zone:hover { border-color: var(--gold); }
+  .img-upload-zone.has-img { border-style: solid; border-color: var(--gold); padding: 0; }
+  .img-upload-zone input[type=file] { display: none; }
+  .img-preview {
+    width: 100%; height: 160px; object-fit: cover;
+    border-radius: 10px; display: block;
+  }
+  .img-upload-label { font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; display: block; }
+  .img-upload-icon { font-size: 2rem; margin-bottom: 6px; display: block; }
+  .img-uploading { position: absolute; inset: 0; background: rgba(10,10,10,0.8);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 10px; font-size: 0.82rem; color: var(--gold); gap: 10px;
+  }
+  .img-spinner {
+    width: 28px; height: 28px; border: 3px solid var(--surface3);
+    border-top-color: var(--gold); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .img-remove-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(232,93,74,0.85); color: #fff; border: none;
+    border-radius: 50%; width: 28px; height: 28px; font-size: 1rem;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+  }
+  .img-remove-btn:hover { background: var(--red); }
+
   .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}
   .section-header h2{font-family:'Playfair Display',serif;font-size:1.2rem;}
 
@@ -392,8 +427,19 @@
 
 <!-- MODAL AJOUT/ÉDITION PLAT -->
 <div class="modal-overlay" id="dishModal">
-  <div class="modal">
+  <div class="modal" style="max-height:90vh;overflow-y:auto;">
     <h2 id="modalTitle">Ajouter un plat</h2>
+
+    <!-- IMAGE UPLOAD -->
+    <div class="form-row">
+      <label>Photo du plat</label>
+      <div class="img-upload-zone" id="imgUploadZone" onclick="document.getElementById('fImageFile').click()">
+        <input type="file" id="fImageFile" accept="image/*" onchange="handleImageUpload(this)">
+        <span class="img-upload-icon">📷</span>
+        <span class="img-upload-label">Cliquer pour ajouter une photo</span>
+      </div>
+    </div>
+
     <div class="form-grid">
       <div class="form-row">
         <label>Emoji du plat</label>
@@ -467,6 +513,70 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// CLOUDINARY
+const CLOUDINARY = { cloudName: 'djxcqczh1', uploadPreset: 'database' };
+let currentImageUrl = null;
+
+// Upload Cloudinary
+window.handleImageUpload = async function(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const zone = document.getElementById('imgUploadZone');
+  zone.innerHTML = `<div class="img-uploading"><div class="img-spinner"></div><span>Upload en cours...</span></div>`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY.uploadPreset);
+
+  try {
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/image/upload`, {
+      method: 'POST', body: formData
+    });
+    const data = await res.json();
+    if(data.secure_url) {
+      currentImageUrl = data.secure_url;
+      zone.classList.add('has-img');
+      zone.innerHTML = `
+        <img src="${data.secure_url}" class="img-preview" alt="Photo du plat">
+        <button class="img-remove-btn" onclick="removeImage(event)" title="Supprimer">✕</button>
+      `;
+      showToast('📷 Photo uploadée avec succès');
+    } else {
+      throw new Error('Upload échoué');
+    }
+  } catch(e) {
+    zone.innerHTML = `<input type="file" id="fImageFile" accept="image/*" onchange="handleImageUpload(this)"><span class="img-upload-icon">⚠️</span><span class="img-upload-label">Erreur upload. Réessayez.</span>`;
+    zone.onclick = () => document.getElementById('fImageFile').click();
+    showToast('❌ Erreur upload image');
+  }
+};
+
+window.removeImage = function(e) {
+  e.stopPropagation();
+  currentImageUrl = null;
+  const zone = document.getElementById('imgUploadZone');
+  zone.classList.remove('has-img');
+  zone.innerHTML = `<input type="file" id="fImageFile" accept="image/*" onchange="handleImageUpload(this)"><span class="img-upload-icon">📷</span><span class="img-upload-label">Cliquer pour ajouter une photo</span>`;
+  zone.onclick = () => document.getElementById('fImageFile').click();
+};
+
+function resetImageZone(imgUrl = null) {
+  currentImageUrl = imgUrl;
+  const zone = document.getElementById('imgUploadZone');
+  if(imgUrl) {
+    zone.classList.add('has-img');
+    zone.innerHTML = `
+      <img src="${imgUrl}" class="img-preview" alt="Photo du plat">
+      <button class="img-remove-btn" onclick="removeImage(event)" title="Supprimer">✕</button>
+    `;
+    zone.onclick = null;
+  } else {
+    zone.classList.remove('has-img');
+    zone.innerHTML = `<input type="file" id="fImageFile" accept="image/*" onchange="handleImageUpload(this)"><span class="img-upload-icon">📷</span><span class="img-upload-label">Cliquer pour ajouter une photo</span>`;
+    zone.onclick = () => document.getElementById('fImageFile').click();
+  }
+}
+
 let allDishes = [];
 let allOrders = [];
 let editingDishId = null;
@@ -526,7 +636,11 @@ function renderDishTable() {
     const prixFinal = dish.reduction ? Math.round(dish.prix*(1-dish.reduction/100)) : dish.prix;
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="dish-emoji-cell">${dish.emoji||'🍽️'}</td>
+      <td class="dish-emoji-cell">
+        ${dish.imageUrl
+          ? `<img src="${dish.imageUrl}" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" alt="${dish.nom}">`
+          : dish.emoji||'🍽️'}
+      </td>
       <td>
         <div class="dish-name-cell">${dish.nom}</div>
         <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${dish.description||''}</div>
@@ -578,6 +692,7 @@ window.openAddModal = function() {
   document.getElementById('fPrix').value='';
   document.getElementById('fReduction').value='0';
   document.getElementById('fDispo').value='true';
+  resetImageZone(null);
   document.getElementById('dishModal').classList.add('open');
 };
 
@@ -593,6 +708,7 @@ window.openEditModal = function(id) {
   document.getElementById('fPrix').value = dish.prix||0;
   document.getElementById('fReduction').value = dish.reduction||0;
   document.getElementById('fDispo').value = dish.disponible===false ? 'false':'true';
+  resetImageZone(dish.imageUrl || null);
   document.getElementById('dishModal').classList.add('open');
 };
 
@@ -610,6 +726,7 @@ window.saveDish = async function() {
     categorie: document.getElementById('fCategorie').value.trim(),
     reduction: parseInt(document.getElementById('fReduction').value)||0,
     disponible: document.getElementById('fDispo').value==='true',
+    imageUrl: currentImageUrl || null,
   };
 
   try {
